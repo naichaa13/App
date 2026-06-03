@@ -5,7 +5,10 @@ import client from '../api/client';
 import { colors, radius, shadow, text } from '../theme';
 
 const ITEM_ICONS = {
-  '飲食': '🍽️', '用藥': '💊', '清潔': '🛁', '活動': '🚶', '睡眠': '😴', '其他': '📝'
+  '飲食': '🍽️', '用藥': '💊', '生理量測': '🩺', '清潔': '🛁', '活動': '🚶', '其他': '📝'
+};
+const ITEM_COLORS = {
+  '飲食': colors.success, '用藥': colors.danger, '生理量測': colors.primary, '清潔': '#9b59b6', '活動': colors.warning, '其他': colors.textSub
 };
 
 export default function RecordDetailScreen({ route, navigation }) {
@@ -58,6 +61,9 @@ export default function RecordDetailScreen({ route, navigation }) {
     );
   };
 
+  const getIcon = (category) => ITEM_ICONS[category] || '📝';
+  const getColor = (category) => ITEM_COLORS[category] || colors.textSub;
+
   return (
     <ScrollView style={s.container}>
       <View style={s.header}>
@@ -79,12 +85,14 @@ export default function RecordDetailScreen({ route, navigation }) {
       </View>
 
       <View style={s.card}>
-        <Text style={s.sectionTitle}>📋 照護紀錄</Text>
+        <View style={s.cardHeader}>
+          <Text style={s.categoryIcon}>{getIcon(record.meals)}</Text>
+          <Text style={s.sectionTitle}>照護紀錄</Text>
+        </View>
         {record.bloodPressure ? <Row ionIcon="heart-outline" color={colors.danger} label="血壓" value={record.bloodPressure} /> : null}
         {record.heartRate ? <Row ionIcon="pulse-outline" color={colors.warning} label="心率" value={`${record.heartRate} bpm`} /> : null}
         {record.temperature ? <Row ionIcon="thermometer-outline" color={colors.primary} label="體溫" value={`${record.temperature} °C`} /> : null}
-        {record.meals ? <Row ionIcon="restaurant-outline" color={colors.success} label="飲食/項目" value={record.meals} /> : null}
-        {record.sleep ? <Row ionIcon="moon-outline" color="#9b59b6" label="睡眠" value={record.sleep} /> : null}
+        {record.meals ? <Row ionIcon="checkmark-circle-outline" color={getColor(record.meals)} label="項目" value={record.meals} /> : null}
         {record.note ? <Row ionIcon="document-text-outline" color={colors.textSub} label="備註" value={record.note} /> : null}
         {!record.bloodPressure && !record.heartRate && !record.temperature && !record.meals && !record.note &&
           <Text style={s.empty}>無照護紀錄內容</Text>}
@@ -108,7 +116,9 @@ const s = StyleSheet.create({
   deleteBtnText:{ color: colors.danger, fontSize: 15, fontWeight: '600' },
 
   card:         { backgroundColor: colors.card, margin: 16, marginBottom: 0, borderRadius: radius.md, padding: 16, ...shadow.sm },
-  sectionTitle: { ...text.h3, marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  cardHeader:   { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  categoryIcon: { fontSize: 24, marginRight: 8 },
+  sectionTitle: { ...text.h3 },
   row:          { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   rowLabel:     { ...text.xs, marginBottom: 2 },
   rowValue:     { ...text.body, fontWeight: '500' },

@@ -17,6 +17,7 @@ import AbnormalStatsScreen from './src/screens/AbnormalStatsScreen';
 import CareRecordListScreen from './src/screens/CareRecordListScreen';
 import DailyTaskScreen from './src/screens/DailyTaskScreen';
 import RecordDetailScreen from './src/screens/RecordDetailScreen';
+import EditRecordScreen from './src/screens/EditRecordScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -41,6 +42,7 @@ export default function App() {
         <Stack.Screen name="AbnormalStats" component={AbnormalStatsScreen} options={{ title: '異常統計' }} />
         <Stack.Screen name="FamilyReminderList" component={FamilyReminderListScreen} options={{ title: '提醒清單' }} />
         <Stack.Screen name="RecordDetail" component={RecordDetailScreen} options={{ title: '紀錄詳情' }} />
+        <Stack.Screen name="EditRecord" component={EditRecordScreen} options={{ title: '編輯紀錄' }} />
         <Stack.Screen name="AddReminder" component={AddReminderScreen} options={{ title: '新增提醒' }} />
         <Stack.Screen name="EditReminder" component={EditReminderScreen} options={{ title: '修改提醒' }} />
       </Stack.Navigator>

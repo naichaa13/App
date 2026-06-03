@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
-import { colors, radius, shadow, text } from '../theme';
 import DateRangePicker from '../components/DateRangePicker';
 
 const ITEM_ICONS = {
@@ -11,9 +10,9 @@ const ITEM_ICONS = {
 const getItemIcon = (meals) => ITEM_ICONS[meals] || '📋';
 
 const QUICK_BTNS = [
-  { label: '異常統計', icon: '📈', route: 'AbnormalStats',       color: colors.primary, bg: colors.primaryBg },
-  { label: '異常紀錄', icon: '📊', route: 'AbnormalList',       color: colors.danger,  bg: colors.dangerBg },
-  { label: '提醒清單', icon: '📋', route: 'FamilyReminderList', color: colors.success, bg: colors.successBg },
+  { label: '異常統計', icon: 'stats-chart', route: 'AbnormalStats', color: '#1890ff', bg: '#e6f7ff' },
+  { label: '異常紀錄', icon: 'document-text', route: 'AbnormalList', color: '#ff4d4f', bg: '#fff2f0' },
+  { label: '提醒清單', icon: 'notifications', route: 'FamilyReminderList', color: '#52c41a', bg: '#f6ffed' },
 ];
 
 export default function FamilyHomeScreen({ navigation }) {
@@ -21,7 +20,50 @@ export default function FamilyHomeScreen({ navigation }) {
   const [filtered, setFiltered]     = useState([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [dateRange, setDateRange] = useState({ start: null, end: null });
+  const [dateRange, setDateRange]   = useState({ start: null, end: null });
+
+  // 查詢功能
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showResults, setShowResults] = useState(false);
+  const [allData, setAllData] = useState({ records: [], events: [], reminders: [] });
+
+  // 載入所有資料
+  useEffect(() => {
+    loadAllData();
+  }, []);
+
+  const loadAllData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+
+      const [recordsRes, eventsRes, remindersRes] = await Promise.all([
+        client.get('/care-records').catch(() => ({ data: [] })),
+        client.get('/family/alerts/history', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }).catch(() => ({ data: [] })),
+        client.get('/family/reminders', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        }).catch(() => ({ data: [] })),
+      ]);
+
+      console.log('載入資料:', {
+        records: recordsRes.data?.length || 0,
+        events: eventsRes.data?.records?.length || eventsRes.data?.length || 0,
+        reminders: remindersRes.data?.length || 0,
+      });
+
+      const eventsData = eventsRes.data?.records || eventsRes.data || [];
+
+      setAllData({
+        records: recordsRes.data || [],
+        events: eventsData,
+        reminders: remindersRes.data || [],
+      });
+    } catch (err) {
+      console.error('載入資料失敗:', err);
+    }
+  };
 
   const fetchRecords = async () => {
     try {
@@ -32,7 +74,7 @@ export default function FamilyHomeScreen({ navigation }) {
   };
 
   useEffect(() => { fetchRecords(); }, []);
-  const onRefresh = () => { setRefreshing(true); fetchRecords(); };
+  const onRefresh = () => { setRefreshing(true); fetchRecords(); loadAllData(); };
 
   const handleDateRangeChange = (range) => {
     setDateRange(range);
@@ -51,67 +93,255 @@ export default function FamilyHomeScreen({ navigation }) {
     }
   };
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity style={s.card} activeOpacity={0.8}
-      onPress={() => navigation.navigate('RecordDetail', { record: item })}>
-      <View style={s.cardTop}>
-        <Text style={s.cardTitle} numberOfLines={1}>{getItemIcon(item.meals)} {item.meals || '未填寫'}</Text>
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+  // 搜尋全部內容
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    if (text.length < 1) {
+      setShowResults(false);
+      setSearchResults([]);
+      return;
+    }
+
+    const query = text.toLowerCase();
+    const results = [];
+
+    // 搜尋照護紀錄
+    allData.records.forEach(r => {
+      const recordText = [
+        r.meals, r.note, r.caregiverName,
+        r.createdAt ? new Date(r.createdAt).toLocaleDateString('zh-TW') : ''
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (recordText.includes(query)) {
+        results.push({ ...r, _type: 'record', _label: '照護紀錄' });
+      }
+    });
+
+    // 搜尋異常事件
+    allData.events.forEach(e => {
+      const eventText = [
+        e.alertId, e.type, e.riskLevel, e.status,
+        e.actionTaken, e.description,
+        e.happenedAt ? new Date(e.happenedAt).toLocaleDateString('zh-TW') : ''
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (eventText.includes(query)) {
+        results.push({ ...e, _type: 'event', _label: '異常事件' });
+      }
+    });
+
+    // 搜尋提醒
+    allData.reminders.forEach(r => {
+      const reminderText = [
+        r.reminderId, r.title, r.content, r.status,
+        r.createdAt ? new Date(r.createdAt).toLocaleDateString('zh-TW') : ''
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (reminderText.includes(query)) {
+        results.push({ ...r, _type: 'reminder', _label: '提醒' });
+      }
+    });
+
+    setSearchResults(results);
+    setShowResults(true);
+  };
+
+  const getResultColor = (type) => {
+    switch (type) {
+      case 'record': return '#1890ff';
+      case 'event': return '#ff4d4f';
+      case 'reminder': return '#52c41a';
+      default: return '#8c8c8c';
+    }
+  };
+
+  const handleResultPress = (item) => {
+    setShowResults(false);
+    setSearchQuery('');
+    if (item._type === 'record') {
+      navigation.navigate('RecordDetail', { record: item });
+    } else if (item._type === 'event') {
+      navigation.navigate('AbnormalList');
+    } else if (item._type === 'reminder') {
+      navigation.navigate('FamilyReminderList');
+    }
+  };
+
+  const renderSearchResult = ({ item: record }) => (
+    <TouchableOpacity
+      style={styles.resultItem}
+      onPress={() => handleResultPress(record)}
+    >
+      <View style={styles.resultHeader}>
+        <View style={styles.resultType}>
+          <View style={[styles.typeTag, { backgroundColor: getResultColor(record._type) }]}>
+            <Text style={styles.typeTagText}>{record._label}</Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#8c8c8c" />
       </View>
-      <Text style={s.cardNote} numberOfLines={1}>📝 {item.note || '無詳細內容'}</Text>
-      <Text style={s.cardTime}>{new Date(item.createdAt).toLocaleString()}</Text>
+      <Text style={styles.resultTitle} numberOfLines={1}>
+        {record.meals || record.type || record.title || record.alertId || record.reminderId || '無標題'}
+      </Text>
+      <Text style={styles.resultNote} numberOfLines={2}>
+        {record.note || record.description || record.content || record.actionTaken || '無詳細內容'}
+      </Text>
+      <View style={styles.resultFooter}>
+        <Ionicons name="time-outline" size={12} color="#8c8c8c" />
+        <Text style={styles.resultTime}>
+          {record.createdAt ? new Date(record.createdAt).toLocaleString('zh-TW') :
+           record.happenedAt ? new Date(record.happenedAt).toLocaleString('zh-TW') : '時間未知'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const renderItem = ({ item }) => (
+    <TouchableOpacity style={styles.card} activeOpacity={0.8}
+      onPress={() => navigation.navigate('RecordDetail', { record: item })}>
+      <View style={styles.cardTop}>
+        <Text style={styles.cardTitle} numberOfLines={1}>{getItemIcon(item.meals)} {item.meals || '未填寫'}</Text>
+        <Ionicons name="chevron-forward" size={16} color="#8c8c8c" />
+      </View>
+      <Text style={styles.cardNote} numberOfLines={1}>📝 {item.note || '無詳細內容'}</Text>
+      <Text style={styles.cardTime}>{new Date(item.createdAt).toLocaleString()}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <View style={s.container}>
-      {/* 快速按鈕 */}
-      <View style={s.quickRow}>
-        {QUICK_BTNS.map(btn => (
-          <TouchableOpacity key={btn.route} style={[s.quickBtn, { backgroundColor: btn.bg }]}
-            onPress={() => navigation.navigate(btn.route)}>
-            <Text style={s.quickIcon}>{btn.icon}</Text>
-            <Text style={[s.quickLabel, { color: btn.color }]}>{btn.label}</Text>
-          </TouchableOpacity>
-        ))}
+    <View style={styles.container}>
+      {/* 搜尋列 - 最上方 */}
+      <View style={styles.searchSection}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={22} color="#8c8c8c" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="搜尋全部內容..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            placeholderTextColor="#bfbfbf"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => { setSearchQuery(''); setShowResults(false); }}>
+              <Ionicons name="close-circle" size={22} color="#8c8c8c" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* 日期區間篩選 */}
-      <View style={s.filterBar}>
-        <DateRangePicker onRangeChange={handleDateRangeChange} />
-      </View>
+      {/* 搜尋結果 */}
+      {showResults && (
+        <View style={styles.resultsContainer}>
+          <Text style={styles.resultsTitle}>
+            找到 {searchResults.length} 筆資料
+          </Text>
+          {searchResults.length === 0 ? (
+            <Text style={styles.noResults}>找不到符合的資料</Text>
+          ) : (
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item, index) => `${item._type}-${item._id || index}`}
+              renderItem={renderSearchResult}
+              style={styles.resultsList}
+            />
+          )}
+        </View>
+      )}
 
-      <Text style={s.sectionLabel}>
-        {dateRange.start
-          ? `（${dateRange.start}${dateRange.end && dateRange.end !== dateRange.start ? ` ~ ${dateRange.end}` : ''}）`
-          : `（${records.length} 筆記錄）`}
-      </Text>
+      {!showResults && (
+        <>
+          {/* 歡迎標題 */}
+          <View style={styles.header}>
+            <Text style={styles.kicker}>家屬端</Text>
+            <Text style={styles.title}>家庭照護中心</Text>
+            <Text style={styles.subtitle}>查看受顧者照護狀況與提醒事項</Text>
+          </View>
 
-      {loading ? <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} /> : (
-        <FlatList data={filtered} keyExtractor={i => i._id} renderItem={renderItem}
-          contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListEmptyComponent={<Text style={s.empty}>此日期沒有照護紀錄</Text>}
-        />
+          {/* 快速按鈕 */}
+          <View style={styles.quickRow}>
+            {QUICK_BTNS.map(btn => (
+              <TouchableOpacity key={btn.route} style={[styles.quickBtn, { backgroundColor: btn.bg }]}
+                onPress={() => navigation.navigate(btn.route)}>
+                <Ionicons name={btn.icon} size={18} color={btn.color} />
+                <Text style={[styles.quickLabel, { color: btn.color }]}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* 日期區間篩選 */}
+          <View style={styles.filterBar}>
+            <DateRangePicker onRangeChange={handleDateRangeChange} />
+          </View>
+
+          <Text style={styles.sectionLabel}>
+            {dateRange.start
+              ? `（${dateRange.start}${dateRange.end && dateRange.end !== dateRange.start ? ` ~ ${dateRange.end}` : ''}）`
+              : `（${records.length} 筆記錄）`}
+          </Text>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#1890ff" style={{ marginTop: 40 }} />
+          ) : (
+            <FlatList data={filtered} keyExtractor={i => i._id} renderItem={renderItem}
+              contentContainerStyle={{ padding: 16, paddingBottom: 30 }}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+              ListEmptyComponent={<Text style={styles.empty}>此日期沒有照護紀錄</Text>}
+            />
+          )}
+        </>
       )}
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  container:  { flex: 1, backgroundColor: colors.bg },
-  quickRow:   { flexDirection: 'row', backgroundColor: colors.card, padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  quickBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: radius.md },
-  quickIcon:  { fontSize: 18 },
-  quickLabel: { fontSize: 13, fontWeight: '700' },
+const styles = StyleSheet.create({
+  container:  { flex: 1, backgroundColor: '#f5f6fa' },
 
-  filterBar:  { backgroundColor: colors.card, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  sectionLabel: { ...text.sm, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  // 搜尋區域
+  searchSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f6fa',
+    borderRadius: 25,
+    paddingHorizontal: 16,
+    height: 46,
+  },
+  searchInput: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, fontSize: 16, color: '#262626' },
 
-  card:       { backgroundColor: colors.card, borderRadius: radius.md, padding: 15, marginBottom: 12, ...shadow.sm },
+  resultsContainer: { backgroundColor: '#fff', margin: 16, borderRadius: 12, padding: 16, maxHeight: 400, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
+  resultsTitle: { fontSize: 14, fontWeight: '600', color: '#595959', marginBottom: 12 },
+  noResults: { textAlign: 'center', color: '#8c8c8c', fontSize: 14, paddingVertical: 20 },
+  resultsList: { maxHeight: 350 },
+  resultItem: { backgroundColor: '#f5f6fa', borderRadius: 8, padding: 12, marginBottom: 8 },
+  resultHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  resultType: { flexDirection: 'row', alignItems: 'center' },
+  typeTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  typeTagText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  resultTitle: { fontSize: 15, fontWeight: '600', color: '#262626', marginBottom: 4 },
+  resultNote: { fontSize: 13, color: '#595959', marginBottom: 4 },
+  resultTime: { fontSize: 11, color: '#8c8c8c' },
+  resultFooter: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+
+  header: { padding: 20, backgroundColor: '#fff' },
+  kicker: { fontSize: 12, color: '#8c8c8c', textTransform: 'uppercase', letterSpacing: 1 },
+  title: { fontSize: 24, fontWeight: 'bold', color: '#262626', marginTop: 4 },
+  subtitle: { fontSize: 14, color: '#8c8c8c', marginTop: 8 },
+
+  quickRow:   { flexDirection: 'row', backgroundColor: '#fff', padding: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  quickBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 12, borderRadius: 12 },
+  quickLabel: { fontSize: 12, fontWeight: '700' },
+
+  filterBar:  { backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  sectionLabel: { fontSize: 13, color: '#8c8c8c', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+
+  card:       { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
   cardTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  cardTitle:  { ...text.h3, flex: 1 },
-  cardNote:   { ...text.body, color: colors.textSub, marginBottom: 8 },
-  cardTime:   { ...text.xs, textAlign: 'right' },
-  empty:      { textAlign: 'center', marginTop: 50, color: colors.textMuted, fontSize: 15 },
+  cardTitle:  { fontSize: 16, fontWeight: '600', color: '#262626', flex: 1 },
+  cardNote:   { fontSize: 14, color: '#8c8c8c', marginBottom: 8 },
+  cardTime:   { fontSize: 12, color: '#bfbfbf', textAlign: 'right' },
+  empty:      { textAlign: 'center', marginTop: 50, color: '#bfbfbf', fontSize: 15 },
 });

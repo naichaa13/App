@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import DateRangePicker from '../components/DateRangePicker';
+import { StackedBarChart, LineChartComponent, PieChartComponent } from '../components/Charts';
 
 export default function AbnormalStatsScreen({ navigation }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dateRange, setDateRange] = useState({ start: null, end: null });
+  const [chartType, setChartType] = useState('bar'); // 'bar' | 'line' | 'pie'
 
   const fetchEvents = async () => {
     try {
@@ -79,18 +81,35 @@ export default function AbnormalStatsScreen({ navigation }) {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(-12); // 最近12个月
 
-  const maxCount = Math.max(...monthlyData.map(m => m[1].total), 1);
-
-  // 类型统计
+  // 類型統計
   const typeCounts = filteredEvents.reduce((acc, e) => {
     const t = e.type || e.eventType || '未知';
     acc[t] = (acc[t] || 0) + 1;
     return acc;
   }, {});
 
-  const topTypes = Object.entries(typeCounts)
+  // 圓餅圖數據
+  const pieData = Object.entries(typeCounts)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+    .slice(0, 6)
+    .map(([type, count], index) => ({
+      label: type,
+      value: count,
+      color: ['#ff4d4f', '#1890ff', '#52c41a', '#faad14', '#722ed1', '#eb2f96'][index]
+    }));
+
+  // 準備堆疊柱狀圖的完整數據格式
+  const stackedChartData = {
+    labels: monthlyData.map(([key, data]) => data.label),
+    datasets: [
+      { data: monthlyData.map(d => d[1].fall), color: '#e74c3c', label: '跌倒/受傷' },
+      { data: monthlyData.map(d => d[1].health), color: '#3498db', label: '生理異常' },
+      { data: monthlyData.map(d => d[1].emotion), color: '#fa8c16', label: '情緒/行為' },
+      { data: monthlyData.map(d => d[1].diet), color: '#52c41a', label: '飲食/排泄' },
+      { data: monthlyData.map(d => d[1].other), color: '#8c8c8c', label: '其他' },
+    ]
+  };
+
 
   if (loading) {
     return (
@@ -110,7 +129,7 @@ export default function AbnormalStatsScreen({ navigation }) {
 
       {/* 日期筛选 */}
       <View style={styles.filterCard}>
-        <Text style={styles.filterLabel}>📅 選擇統計區間</Text>
+        <Text style={styles.filterLabel}><Ionicons name="calendar-outline" size={16} color="#595959" /> 選擇統計區間</Text>
         <DateRangePicker onRangeChange={setDateRange} />
       </View>
 
@@ -130,97 +149,10 @@ export default function AbnormalStatsScreen({ navigation }) {
         </View>
       </View>
 
-      {/* 📊 月度異常長條圖 - 水平堆疊 */}
-      {monthlyData.length > 0 && (
-        <View style={styles.barChartSection}>
-          <Text style={styles.sectionTitle}>📊 月度異常次數比較</Text>
-          <Text style={styles.chartSubtitle}>全部異常事件類型</Text>
-
-          {/* 水平堆疊長條圖 */}
-          <View style={styles.horizontalChartContainer}>
-            {monthlyData.map(([key, data]) => {
-              const total = data.fall + data.health + data.emotion + data.diet + data.other;
-              if (total === 0) return null;
-              
-              return (
-                <View key={key} style={styles.horizontalBarRow}>
-                  <Text style={styles.horizontalLabel}>{data.label}</Text>
-                  <View style={styles.horizontalBarBg}>
-            {data.fall > 0 && (
-              <View style={[styles.horizontalSegment, { backgroundColor: '#e74c3c', flex: data.fall }]} />
-            )}
-            {data.health > 0 && (
-              <View style={[styles.horizontalSegment, { backgroundColor: '#3498db', flex: data.health }]} />
-            )}
-                    {data.emotion > 0 && (
-                      <View style={[styles.horizontalSegment, { backgroundColor: '#fa8c16', flex: data.emotion }]} />
-                    )}
-                    {data.diet > 0 && (
-                      <View style={[styles.horizontalSegment, { backgroundColor: '#52c41a', flex: data.diet }]} />
-                    )}
-                    {data.other > 0 && (
-                      <View style={[styles.horizontalSegment, { backgroundColor: '#8c8c8c', flex: data.other }]} />
-                    )}
-                  </View>
-                  <Text style={styles.horizontalValue}>{total}</Text>
-                </View>
-              );
-            })}
-          </View>
-
-          {/* 圖例 */}
-          <View style={styles.legend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: '#e74c3c' }]} />
-              <Text style={styles.legendText}>跌倒/受傷</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: '#3498db' }]} />
-              <Text style={styles.legendText}>生理異常</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: '#fa8c16' }]} />
-              <Text style={styles.legendText}>情緒/行為</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: '#52c41a' }]} />
-              <Text style={styles.legendText}>飲食/排泄</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: '#8c8c8c' }]} />
-              <Text style={styles.legendText}>其他</Text>
-            </View>
-          </View>
-
-          {/* 詳細統計表 */}
-          <View style={styles.statsTable}>
-            <View style={styles.tableHeader}>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>月份</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>總次數</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>跌倒</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>生理</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>情緒</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>飲食</Text>
-              <Text style={styles.tableHeaderCell} numberOfLines={1}>其他</Text>
-            </View>
-            {monthlyData.slice().reverse().map(([key, data]) => (
-              <View key={key} style={styles.tableRow}>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.label}</Text>
-                <Text style={[styles.tableCell, { fontWeight: '700' }]} numberOfLines={1}>{data.total}</Text>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.fall}</Text>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.health}</Text>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.emotion}</Text>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.diet}</Text>
-                <Text style={styles.tableCell} numberOfLines={1}>{data.other}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
 
       {/* 严重程度分布 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔴 嚴重程度分布</Text>
+        <Text style={styles.sectionTitle}><Ionicons name="alert-circle" size={18} color="#262626" /> 嚴重程度分布</Text>
         <View style={styles.severityRow}>
           <View style={[styles.severityCard, { borderColor: '#ff4d4f', backgroundColor: '#fff2f0' }]}>
             <Ionicons name="alert-circle" size={24} color="#ff4d4f" />
@@ -240,35 +172,9 @@ export default function AbnormalStatsScreen({ navigation }) {
         </View>
       </View>
 
-      {/* 类型排行 */}
+      {/* ✅ 處理率 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📋 異常類型排行</Text>
-        {topTypes.length === 0 ? (
-          <Text style={styles.empty}>暫無數據</Text>
-        ) : (
-          topTypes.map(([type, count], index) => (
-            <View key={type} style={styles.typeRow}>
-              <View style={styles.typeRank}>
-                <Text style={styles.rankText}>{index + 1}</Text>
-              </View>
-              <Text style={styles.typeName} numberOfLines={1}>{type}</Text>
-              <View style={styles.typeBarBg}>
-                <View
-                  style={[
-                    styles.typeBar,
-                    { width: `${(count / total) * 100}%` }
-                  ]}
-                />
-              </View>
-              <Text style={styles.typeCount}>{count}</Text>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* 处理率 */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>✅ 處理率</Text>
+        <Text style={styles.sectionTitle}><Ionicons name="checkmark-done-circle" size={18} color="#262626" /> 處理率</Text>
         <View style={styles.progressContainer}>
           <View style={styles.progressBg}>
             <View
@@ -286,6 +192,56 @@ export default function AbnormalStatsScreen({ navigation }) {
           {handled} / {total} 筆已處理
         </Text>
       </View>
+
+
+      {/* 📊 月度異常趨勢 - 可切換圖表 */}
+      {monthlyData.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}><Ionicons name="stats-chart" size={18} color="#262626" /> 月度異常趨勢</Text>
+
+          {/* 圖表類型選擇 */}
+          <View style={styles.chartToggle}>
+            <TouchableOpacity
+              style={[styles.chartToggleBtn, chartType === 'bar' && styles.chartToggleActive]}
+              onPress={() => setChartType('bar')}
+            >
+              <Ionicons name="bar-chart" size={18} color={chartType === 'bar' ? '#fff' : '#595959'} />
+              <Text style={[styles.chartToggleText, chartType === 'bar' && styles.chartToggleTextActive]}>長條圖</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chartToggleBtn, chartType === 'line' && styles.chartToggleActive]}
+              onPress={() => setChartType('line')}
+            >
+              <Ionicons name="stats-chart" size={18} color={chartType === 'line' ? '#fff' : '#595959'} />
+              <Text style={[styles.chartToggleText, chartType === 'line' && styles.chartToggleTextActive]}>折線圖</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chartToggleBtn, chartType === 'pie' && styles.chartToggleActive]}
+              onPress={() => setChartType('pie')}
+            >
+              <Ionicons name="pie-chart" size={18} color={chartType === 'pie' ? '#fff' : '#595959'} />
+              <Text style={[styles.chartToggleText, chartType === 'pie' && styles.chartToggleTextActive]}>圓餅圖</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 根據選擇顯示不同圖表 */}
+          {chartType === 'bar' && (
+            <StackedBarChart data={stackedChartData} height={280} />
+          )}
+          {chartType === 'line' && (
+            <LineChartComponent
+              data={monthlyData.map(([key, data]) => ({
+                label: data.label,
+                value: data.total
+              }))}
+              height={220}
+            />
+          )}
+          {chartType === 'pie' && (
+            <PieChartComponent data={pieData} height={220} />
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -305,40 +261,8 @@ const styles = StyleSheet.create({
   overviewNum: { fontSize: 28, fontWeight: 'bold', color: '#262626', marginTop: 8 },
   overviewLabel: { fontSize: 12, color: '#8c8c8c', marginTop: 4 },
 
-  // 📊 長條圖樣式
-  barChartSection: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#262626', marginBottom: 4 },
-  chartSubtitle: { fontSize: 13, color: '#8c8c8c', marginBottom: 16 },
-
-  // 📊 水平堆疊長條圖
-  horizontalChartContainer: { marginBottom: 16 },
-  horizontalBarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  horizontalLabel: { width: 45, fontSize: 13, color: '#595959', fontWeight: '600' },
-  horizontalBarBg: { flex: 1, height: 24, borderRadius: 4, overflow: 'hidden', flexDirection: 'row' },
-  horizontalSegment: { height: '100%' },
-  horizontalValue: { width: 35, textAlign: 'right', fontSize: 14, fontWeight: 'bold', color: '#262626', marginLeft: 8 },
-
-  // 舊的長條圖樣式（保留以防需要）
-  stackedChartContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: 150, marginBottom: 12, paddingHorizontal: 8 },
-  stackedBarWrapper: { alignItems: 'center', flex: 1 },
-  stackedTotal: { fontSize: 12, fontWeight: '700', color: '#595959', marginBottom: 4 },
-  stackedBarOuter: { width: 28, height: 100, borderRadius: 4, overflow: 'hidden', flexDirection: 'column' },
-  stackedSegment: { width: '100%' },
-  stackedMonth: { fontSize: 11, color: '#8c8c8c', marginTop: 6, fontWeight: '600' },
-
-  legend: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 8, marginBottom: 16 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendColor: { width: 14, height: 14, borderRadius: 3 },
-  legendText: { fontSize: 12, color: '#595959' },
-
-  // 詳細統計表
-  statsTable: { borderWidth: 1, borderColor: '#f0f0f0', borderRadius: 8, overflow: 'hidden', marginTop: 8 },
-  tableHeader: { flexDirection: 'row', backgroundColor: '#fafafa', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  tableHeaderCell: { flex: 1, textAlign: 'center', fontSize: 10, fontWeight: '700', color: '#595959' },
-  tableRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f9f9f9' },
-  tableCell: { flex: 1, textAlign: 'center', fontSize: 11, color: '#262626' },
-
   section: { backgroundColor: '#ffffff', borderRadius: 12, padding: 16, marginBottom: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1 },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#262626', marginBottom: 12 },
 
   severityRow: { flexDirection: 'row', justifyContent: 'space-around' },
   severityCard: { alignItems: 'center', borderRadius: 12, padding: 15, borderWidth: 2, minWidth: 90 },
@@ -358,6 +282,17 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: '#52c41a', borderRadius: 8 },
   progressText: { fontSize: 20, fontWeight: 'bold', color: '#52c41a', marginLeft: 12, width: 50 },
   progressSub: { fontSize: 12, color: '#8c8c8c', textAlign: 'center' },
+
+  chartToggle: { flexDirection: 'row', marginBottom: 16, backgroundColor: '#f0f0f0', borderRadius: 10, padding: 4 },
+  chartToggleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, gap: 6 },
+  chartToggleActive: { backgroundColor: '#1890ff' },
+  chartToggleText: { fontSize: 13, color: '#595959', fontWeight: '500' },
+  chartToggleTextActive: { color: '#fff', fontWeight: '600' },
+
+  legendRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 12, gap: 12 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
+  legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 6 },
+  legendLabel: { fontSize: 12, color: '#595959' },
 
   empty: { textAlign: 'center', color: '#bfbfbf', fontSize: 14, marginTop: 20 }
 });
